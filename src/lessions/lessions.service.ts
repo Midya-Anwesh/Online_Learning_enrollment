@@ -63,9 +63,10 @@ export class LessionsService {
         if (!lession){
             throw new NotFoundException(`No lessions found with id: ${lessionObj.id}`);
         }
+        
 
         //If current user isn't an admin Check if the current user id is in the instructor list of the parent course of the lession
-        if (currUser.role !== "admin"){
+        if (currUser.role == "admin"){
             const isInstructor = lession.course.instructors.some( (instructor) => instructor.instructor.id  === currUser.sub );
             if (!isInstructor){
                 throw new BadRequestException("Current user isn't a instructor of the parent course of the lession");
