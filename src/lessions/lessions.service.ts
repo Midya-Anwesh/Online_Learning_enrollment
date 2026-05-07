@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -7,6 +7,7 @@ import { Courses } from '../courses/courses.entity';
 import { Lessions } from './lessions.entity';
 import { CreateLessionsDto } from './dtos/create-lessions.dto';
 import { UpdateLessionsDto } from './dtos/update-lessions.dto';
+import type { Request as ExpressRequest } from 'express';
 
 @Injectable()
 export class LessionsService {
@@ -36,12 +37,39 @@ export class LessionsService {
     }
 
 
-    async updateLession(lessionObj: UpdateLessionsDto){
+    async updateLession(lessionObj: UpdateLessionsDto, currUser: ExpressRequest["currUser"]){
+        if (!currUser){
+            throw new BadRequestException('UnIdentified user, please login');
+        }
+
         // Check if requested course exists or not, if not throw not found
-        const lession = await this.repo.findOneBy({id: lessionObj.id});
+        const lession = await this.repo.findOne({
+            where: {id: lessionObj.id},
+            relations: ['course', 'course.instructors', 'course.instructors.instructor'],
+            select: {
+                id: true,
+                course: {
+                    id: true,
+                    instructors: {
+                        id: true,
+                        instructor: {
+                            id: true
+                        }
+                    }
+                }
+            }
+        });
 
         if (!lession){
             throw new NotFoundException(`No lessions found with id: ${lessionObj.id}`);
+        }
+
+        //If current user isn't an admin Check if the current user id is in the instructor list of the parent course of the lession
+        if (currUser.role !== "admin"){
+            const isInstructor = lession.course.instructors.some( (instructor) => instructor.instructor.id  === currUser.sub );
+            if (!isInstructor){
+                throw new BadRequestException("Current user isn't a instructor of the parent course of the lession");
+            }
         }
 
         // Otherwise apply the updation and return newly saved lession

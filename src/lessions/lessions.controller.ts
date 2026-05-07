@@ -1,9 +1,10 @@
-import { Controller, Post, Body, Get, Query, Patch, Delete, Param, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Get, Query, Patch, Delete, Param, UseGuards, Request } from '@nestjs/common';
 import { LessionsService } from './lessions.service';
 import { CreateLessionsDto } from './dtos/create-lessions.dto';
 import { UpdateLessionsDto } from './dtos/update-lessions.dto';
 import { Roles } from '../decorators/roles.decorators';
 import { RoleGuard } from '../guards/role.guard';
+import type { Request as ExpressRequest } from 'express';
 
 @Controller('lessions')
 export class LessionsController {
@@ -26,8 +27,8 @@ export class LessionsController {
     @Roles('admin', 'instructor')
     @UseGuards(RoleGuard)
     @Patch()
-    updateLession(@Body() body: UpdateLessionsDto){
-        return this.lessionsService.updateLession(body);
+    updateLession(@Body() body: UpdateLessionsDto, @Request() req: ExpressRequest){
+        return this.lessionsService.updateLession(body, req.currUser);
     }
 
     @Roles('admin')
