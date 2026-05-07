@@ -9,6 +9,10 @@ request.http
 /node_modules
 /build
 
+# Random text files
+*.txt
+
+
 # Logs
 logs
 *.log
