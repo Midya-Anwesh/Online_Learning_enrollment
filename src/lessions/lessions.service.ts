@@ -73,6 +73,14 @@ export class LessionsService {
             }
         }
 
+        //If current user isn't an admin Check if the current user id is in the instructor list of the parent course of the lession
+        if (currUser.role !== "admin"){
+            const isInstructor = lession.course.instructors.some( (instructor) => instructor.instructor.id  === currUser.sub );
+            if (!isInstructor){
+                throw new BadRequestException("Current user isn't a instructor of the parent course of the lession");
+            }
+        }
+
         // Otherwise apply the updation and return newly saved lession
         lession.description = lessionObj.desc;
         const newLession = Object.assign(lession, lessionObj);
