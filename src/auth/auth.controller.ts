@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseInterceptors, UseGuards, Request, Get, Delete, Req, Query } from '@nestjs/common';
+import { Controller, Post, Body, UseInterceptors, UseGuards, Request, Get, Delete, Req, Query, Patch } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { CreateUserDto } from '../users/dtos/create-user.dto';
 import { SerializeUsers } from '../users/interceptors/serialize-user.interceptor';
@@ -7,6 +7,7 @@ import { Roles } from '../decorators/roles.decorators';
 import { jwtAuthGuard } from '../guards/passport.jwt.guard';
 import { UpdatePasswordDto } from './dtos/update-password.dto';
 import type { Request as ExpressRequest } from 'express';
+import { UpdateEmailDto } from './dtos/update-email.dto';
 
 @UseInterceptors(SerializeUsers)
 @Controller('auth')
@@ -38,6 +39,13 @@ export class AuthController {
     @Get('me')
     whoAmI(@Request() req: ExpressRequest){
         return req.currUser;
+    }
+
+
+    @UseGuards(jwtAuthGuard)
+    @Patch('update/email')
+    updateEmail(@Body() body: UpdateEmailDto, @Req() req: ExpressRequest){
+        return this.authService.updateEmail(body, req.currUser);
     }
 
     @UseGuards(jwtAuthGuard)
