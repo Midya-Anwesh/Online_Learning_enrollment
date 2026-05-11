@@ -4,8 +4,7 @@ import { CreateCourseDto } from './dtos/create-course.dto';
 import { UpdateCoursesDto } from './dtos/update-course.dto';
 import { InstructorsDto } from '../instructors/dtos/assignOrRemove.instructors.dto';
 import { Roles } from '../decorators/roles.decorators';
-import { RoleGuard } from '../guards/role.guard';
-import { AdminGuard } from '../guards/admin.guard';
+import { jwtAuthGuard } from '../guards/passport.jwt.guard';
 
 @Controller('courses')
 export class CoursesController {
@@ -45,32 +44,35 @@ export class CoursesController {
     }
 
     @Roles('admin', 'instructor')
-    @UseGuards(RoleGuard)
+    @UseGuards(jwtAuthGuard)
     @Post()
     createCourse(@Body() body: CreateCourseDto){
         return this.coursesService.createCourse(body);
     }
 
-    @UseGuards(AdminGuard)
+    @Roles('admin')
+    @UseGuards(jwtAuthGuard)
     @Post('/:courseId/assign_instructors')
     addInstructors(@Param('courseId') courseId: string, @Body() body: InstructorsDto){
         return this.coursesService.addInstructors(courseId, body.instructorIds);
     }
 
     @Roles('admin', 'instructor')
-    @UseGuards(RoleGuard)
+    @UseGuards(jwtAuthGuard)
     @Patch()
     updateCourse(@Body() body: UpdateCoursesDto, @Request() req: any){
         return this.coursesService.updateCourse(body.id, body.newTitle, req.currUser as any);
     }
 
-    @UseGuards(AdminGuard)
+    @Roles('admin')
+    @UseGuards(jwtAuthGuard)
     @Delete('/:id')
     deleteCourse(@Param('id') id: string){
         return this.coursesService.deleteCourse(id);
     }
 
-    @UseGuards(AdminGuard)
+    @Roles('admin')
+    @UseGuards(jwtAuthGuard)
     @Delete('/:courseId/remove_instructors')
     removeInstructors(@Param('courseId') courseId: string, @Body() body: InstructorsDto){
         return this.coursesService.removeInstructors(courseId, body.instructorIds);

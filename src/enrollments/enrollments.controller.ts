@@ -2,7 +2,7 @@ import { Controller, Post, Body, Get, Param, UseInterceptors, UseGuards, Request
 import { EnrollmentsService } from './enrollments.service';
 import { CreateEnrollmentDto } from './dtos/create-enrollment.dto';
 import { SerializeEnrollments } from './interceptors/serialize.enrollments.interceptor';
-import { RoleGuard } from '../guards/role.guard';
+import { jwtAuthGuard } from 'src/guards/passport.jwt.guard';
 import { Roles } from '../decorators/roles.decorators';
 import type { Request as ExpressRequest} from 'express';
 
@@ -23,7 +23,7 @@ export class EnrollmentsController {
     }
 
     @Roles('student', 'instructor', 'admin')
-    @UseGuards(RoleGuard)
+    @UseGuards(jwtAuthGuard)
     @UseInterceptors(SerializeEnrollments)
     @Post()
     createEnrollment(@Body() body: CreateEnrollmentDto, @Request() req: ExpressRequest){
@@ -31,15 +31,11 @@ export class EnrollmentsController {
     }
 
     @Roles('student', 'instructor', 'admin')
-    @UseGuards(RoleGuard)
+    @UseGuards(jwtAuthGuard)
     @Delete('/:courseId')
     unEnroll(@Param('courseId') courseId: string, @Request() req: ExpressRequest, @Query('userId') userId?: string){
         // By deault we prefer user is unenrolling themselves
-        let [userIdToDelete, currUserRole] = [req.currUser?.sub, undefined as undefined|string];
-        // If someone is trying to unenroll another user, we need to change which user to delete and also we need to send role of currently logged in user
-        if (userId){
-            [userIdToDelete, currUserRole] = [userId, req.currUser?.role];
-        }
-        return this.enrollmentsService.deleteEnrollment(courseId, userIdToDelete as string, currUserRole);
+        let userIdToDelete = userId ?? req.currUser.sub;
+        return this.enrollmentsService.deleteEnrollment(courseId, userIdToDelete as string, req.currUser);
     }
 }

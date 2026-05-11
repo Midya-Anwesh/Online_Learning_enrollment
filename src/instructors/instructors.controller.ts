@@ -1,7 +1,7 @@
 import { Controller, Get, UseGuards, Request, Param, Post } from '@nestjs/common';
 import { InstructorsService } from './instructors.service';
 import { Roles } from '../decorators/roles.decorators';
-import { RoleGuard } from '../guards/role.guard';
+import { jwtAuthGuard } from '../guards/passport.jwt.guard';
 
 @Controller('instructors')
 export class InstructorsController {
@@ -15,7 +15,7 @@ export class InstructorsController {
     }
     
     @Roles('instructor', 'admin')
-    @UseGuards(RoleGuard)
+    @UseGuards(jwtAuthGuard)
     @Get('myCourses')
     myCourses(@Request() req: any){
         return this.instructorsService.getCoursesByUser(req.currUser.sub);

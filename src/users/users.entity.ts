@@ -1,6 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, OneToMany} from "typeorm";
 import { Enrollments } from "../enrollments/enrollments.entity";
 import { Instructors } from "../instructors/instructors.entity";
+import { JwtTokenList } from "../auth/jwtTokenList/jwtTokenList.entity";
 
 @Entity()
 export class Users {
@@ -20,8 +21,11 @@ export class Users {
     password: string;
 
     @OneToMany(() => Enrollments, (enrollment) => enrollment.user, {cascade: true})
-    enrollments: Enrollments[]
+    enrollments: Enrollments[];
 
     @OneToMany(() => Instructors, (instructor) => instructor.instructor, {cascade: true})
-    instructor: Instructors[]
+    instructor: Instructors[];
+
+    @OneToMany(() => JwtTokenList, (jwtList) => jwtList.user)
+    tokens: JwtTokenList[];
 }

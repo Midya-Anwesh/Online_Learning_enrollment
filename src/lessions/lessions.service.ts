@@ -3,18 +3,19 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { CoursesService } from '../courses/courses.service';
-import { Courses } from '../courses/courses.entity';
 import { Lessions } from './lessions.entity';
 import { CreateLessionsDto } from './dtos/create-lessions.dto';
 import { UpdateLessionsDto } from './dtos/update-lessions.dto';
 import type { Request as ExpressRequest } from 'express';
+import { UsersService } from '../users/users.service';
+import { OptimisticLockVersionMismatchError } from 'typeorm/browser';
 
 @Injectable()
 export class LessionsService {
     constructor(
         @InjectRepository(Lessions) private repo: Repository<Lessions>,
         private coursesService: CoursesService,
-        @InjectRepository(Courses) private courseRepo: Repository<Courses>
+        private usersService: UsersService
     ){}
 
     async createLession(lessionObj: CreateLessionsDto){
@@ -38,8 +39,9 @@ export class LessionsService {
 
 
     async updateLession(lessionObj: UpdateLessionsDto, currUser: ExpressRequest["currUser"]){
-        if (!currUser){
-            throw new BadRequestException('UnIdentified user, please login');
+        const user = await this.usersService.findUser(currUser.sub);
+        if (!user){
+            throw new BadRequestException('UnIdentified user, please login to update lession');
         }
 
         // Check if requested course exists or not, if not throw not found
@@ -66,7 +68,7 @@ export class LessionsService {
         
 
         //If current user isn't an admin Check if the current user id is in the instructor list of the parent course of the lession
-        if (currUser.role == "admin"){
+        if (user.role == "admin"){
             const isInstructor = lession.course.instructors.some( (instructor) => instructor.instructor.id  === currUser.sub );
             if (!isInstructor){
                 throw new BadRequestException("Current user isn't a instructor of the parent course of the lession");
@@ -74,7 +76,7 @@ export class LessionsService {
         }
 
         //If current user isn't an admin Check if the current user id is in the instructor list of the parent course of the lession
-        if (currUser.role !== "admin"){
+        if (user.role !== "admin"){
             const isInstructor = lession.course.instructors.some( (instructor) => instructor.instructor.id  === currUser.sub );
             if (!isInstructor){
                 throw new BadRequestException("Current user isn't a instructor of the parent course of the lession");

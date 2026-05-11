@@ -33,12 +33,8 @@ export class UsersService {
         return await this.repo.save(user);
     }
 
-    async removeUser(id: string){
-        const user = await this.findUser(id as string);
-        if (!user){
-            throw new NotFoundException(`No user found with id: ${id}`);
-        }
-        return this.repo.remove(user);
+    async remove(user: Users){
+        return await this.repo.remove(user);
     }
 
     async assignRole(roleUpdationObj: AssignUserRoleDto){
@@ -51,12 +47,12 @@ export class UsersService {
     }
 
     async updateUser(updateObj: UpdateUsersDto, currUser: ExpressRequest["currUser"]){
-        if ( (updateObj.oldEmail !== currUser?.email) && (currUser?.role !== 'admin')) {
-            throw new BadRequestException(`Logged in users can update their profile only`);
-        }
         const user = await this.findByEmail(updateObj.oldEmail);
         if (!user){
             throw new NotFoundException(`No users found with email: ${updateObj.oldEmail}`);
+        }
+        if ( (updateObj.oldEmail !== user.email) && (user.role !== 'admin')) {
+            throw new BadRequestException(`Logged in users can update their profile only`);
         }
         const updatedUser = Object.assign(user, updateObj);
         return await this.repo.save(updatedUser);

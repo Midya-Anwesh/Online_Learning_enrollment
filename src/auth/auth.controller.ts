@@ -1,10 +1,10 @@
-import { Controller, Post, Body, UseInterceptors, UseGuards, Request, Get } from '@nestjs/common';
+import { Controller, Post, Body, UseInterceptors, UseGuards, Request, Get, Delete, Req, Query } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { CreateUserDto } from '../users/dtos/create-user.dto';
 import { SerializeUsers } from '../users/interceptors/serialize-user.interceptor';
 import { PassportLocalGuard } from '../guards/passport.local.guard';
 import { Roles } from '../decorators/roles.decorators';
-import { RoleGuard } from '../guards/role.guard';
+import { jwtAuthGuard } from '../guards/passport.jwt.guard';
 import { UpdatePasswordDto } from './dtos/update-password.dto';
 import type { Request as ExpressRequest } from 'express';
 
@@ -27,16 +27,22 @@ export class AuthController {
     }
 
     @Roles('student', 'instructor', 'admin')
-    @UseGuards(RoleGuard)
+    @UseGuards(jwtAuthGuard)
     @Post('update_password')
     updatePassword(@Body() body: UpdatePasswordDto, @Request() req: ExpressRequest){
         return this.authService.updatePassword(body, req.currUser);
     }
 
     @Roles('student', 'instructor', 'admin')
-    @UseGuards(RoleGuard)
+    @UseGuards(jwtAuthGuard)
     @Get('me')
     whoAmI(@Request() req: ExpressRequest){
         return req.currUser;
+    }
+
+    @UseGuards(jwtAuthGuard)
+    @Delete('delete')
+    deleteUser(@Req() req: ExpressRequest, @Query('userId') userId: string){
+        return this.authService.deleteUser(userId ?? req.currUser.sub, req.currUser);
     }
 }

@@ -18,11 +18,18 @@ export class EnrollmentsService {
     async createEnrollment(enrollmentObj: CreateEnrollmentDto, currUser: ExpressRequest["currUser"]){
         // If current User is an admin, we will choose userId sent in the body to be enrolled, if not sent then we will enroll the admin
         // For other users they can only enroll themselves the userId sent in body will be ignored for them
-        let userId = currUser?.sub;
-        if (currUser?.role === "admin"){
-            userId = enrollmentObj.userId ?? userId;
+        let user = await this.usersService.findUser(currUser.sub);
+        if (!user){
+            throw new BadRequestException(`Please login to enroll...`);
         }
-        const user = await this.usersService.findUser(userId as string);
+        let userId = currUser.sub;
+        if (user.role === "admin"){
+            userId = enrollmentObj.userId ?? userId;
+            user = await this.usersService.findUser(userId);
+            if (!user){
+                throw new BadRequestException(`No user found with id: ${userId}`);
+            }
+        }
         const course = await this.coursesService.findCourse(enrollmentObj.courseId as string);
 
         if ((!user) || (!course)){
@@ -53,11 +60,19 @@ export class EnrollmentsService {
         return query.getRawMany();
     }
 
-    async deleteEnrollment(courseId: string, userId: string, currUserRole?: string){
+    async deleteEnrollment(courseId: string, userId: string, currUser: ExpressRequest["currUser"]){
+        let user = await this.usersService.findUser(currUser.sub);
+        if (!user){
+            throw new BadRequestException(`Please login to delete account...`);
+        }
         // If we want to delete any Other user then currUser Should be admin, it's optional because in other cases when user unenroll themselves we don't bother about it
-        if (currUserRole){
-            if (currUserRole !== "admin"){
+        if (currUser.sub !== userId){
+            if (user.role !== "admin"){
                 throw new BadRequestException(`Only admins can un enroll anyone, other users may unenroll themselves only`);
+            }
+            user = await this.usersService.findUser(userId);
+            if (!user){
+                throw new NotFoundException(`No user found with id: ${userId}`);
             }
         }
         // Check if the user is enrolled in the course or not

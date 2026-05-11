@@ -3,7 +3,7 @@ import { LessionsService } from './lessions.service';
 import { CreateLessionsDto } from './dtos/create-lessions.dto';
 import { UpdateLessionsDto } from './dtos/update-lessions.dto';
 import { Roles } from '../decorators/roles.decorators';
-import { RoleGuard } from '../guards/role.guard';
+import { jwtAuthGuard } from 'src/guards/passport.jwt.guard';
 import type { Request as ExpressRequest } from 'express';
 
 @Controller('lessions')
@@ -18,21 +18,21 @@ export class LessionsController {
     }
 
     @Roles('instructor', 'admin')
-    @UseGuards(RoleGuard)
+    @UseGuards(jwtAuthGuard)
     @Post()
     createLession(@Body() body: CreateLessionsDto){
         return this.lessionsService.createLession(body);
     }
 
     @Roles('admin', 'instructor')
-    @UseGuards(RoleGuard)
+    @UseGuards(jwtAuthGuard)
     @Patch()
     updateLession(@Body() body: UpdateLessionsDto, @Request() req: ExpressRequest){
         return this.lessionsService.updateLession(body, req.currUser);
     }
 
     @Roles('admin')
-    @UseGuards(RoleGuard)
+    @UseGuards(jwtAuthGuard)
     @Delete('/:id')
     deleteLession(@Param('id') id: string){
         return this.lessionsService.deleteLession(id);
