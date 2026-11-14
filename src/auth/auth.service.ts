@@ -56,7 +56,7 @@ export class AuthService {
         }
         user.password = await hash(newPassword);
         await this.usersService.saveUser(user);
-        await this.tokenService.blockToken(currUser.tokenIdentifier, currUser.sub, false);
+        await this.tokenService.blockToken('', currUser.sub, true);
         return this.login({
             email: user.email,
             password: updatePasswordObj.newPassword
@@ -110,6 +110,8 @@ export class AuthService {
 
         // now update the user's email
         user.email = updateEmailObj.newEmail;
-        return await this.usersService.saveUser(user);
+        const updatedUser = await this.usersService.saveUser(user);
+        await this.tokenService.blockToken('', user.id, true);
+        return updatedUser;
     }
 }

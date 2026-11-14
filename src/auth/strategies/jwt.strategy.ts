@@ -12,9 +12,9 @@ export class jwtValidationStrategy extends PassportStrategy(Strategy, 'jwt') {
         private tokenService: JwtTokenSerive
     ){
         super({
-            ignoreExpiration: true,
+            ignoreExpiration: false,
             jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-            secretOrKey: configService.get<string>('JWT_SECRET') ?? "default"
+            secretOrKey: configService.getOrThrow<string>('JWT_SECRET')
         })
     }
     async validate(payload: ExpressRequest["currUser"]) {

@@ -12,16 +12,18 @@ export class LessionsController {
         private lessionsService: LessionsService
     ){}
 
+    @Roles('student', 'instructor', 'admin')
+    @UseGuards(jwtAuthGuard)
     @Get()
-    getLessionsByCourses(@Query('courseId') courseId?: string){
-        return this.lessionsService.getLessionsByCourse(courseId ?? '*');
+    getLessionsByCourses(@Request() req: ExpressRequest, @Query('courseId') courseId?: string){
+        return this.lessionsService.getLessionsByCourse(courseId ?? '*', req.currUser);
     }
 
     @Roles('instructor', 'admin')
     @UseGuards(jwtAuthGuard)
     @Post()
-    createLession(@Body() body: CreateLessionsDto){
-        return this.lessionsService.createLession(body);
+    createLession(@Body() body: CreateLessionsDto, @Request() req: ExpressRequest){
+        return this.lessionsService.createLession(body, req.currUser);
     }
 
     @Roles('admin', 'instructor')

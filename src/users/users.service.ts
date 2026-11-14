@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Users } from './users.entity';
@@ -6,6 +6,7 @@ import { CreateUserDto } from './dtos/create-user.dto';
 import { UpdateUsersDto } from './dtos/update-user.dto';
 import type { Request as ExpressRequest } from 'express';
 import { AssignUserRoleDto } from './dtos/assign-user-role.dto';
+import { JwtTokenList } from '../auth/jwtTokenList/jwtTokenList.entity';
 
 @Injectable()
 export class UsersService {
@@ -17,7 +18,8 @@ export class UsersService {
         if (await this.repo.findOne({where: {email: userObj.email}})){
             throw new BadRequestException(`User already exists with mail id: ${userObj.email}`);
         }
-        const newUser = this.repo.create(userObj);
+        // Defense in depth: never trust a caller-supplied registration role.
+        const newUser = this.repo.create({...userObj, role: 'student'});
         return await this.repo.save(newUser);
     }
 
@@ -42,8 +44,12 @@ export class UsersService {
         if (!user){
             throw new NotFoundException(`No users with email: ${roleUpdationObj.email} esists`);
         }
-        user.role = roleUpdationObj.role;
-        return await this.repo.save(user);
+        return this.repo.manager.transaction(async manager => {
+            user.role = roleUpdationObj.role;
+            await manager.save(Users, user);
+            await manager.update(JwtTokenList, {user: {id: user.id}}, {blockListed: true});
+            return user;
+        });
     }
 
     async updateUser(updateObj: UpdateUsersDto, currUser: ExpressRequest["currUser"]){
@@ -51,11 +57,20 @@ export class UsersService {
         if (!user){
             throw new NotFoundException(`No users found with email: ${updateObj.oldEmail}`);
         }
-        if ( (updateObj.oldEmail !== user.email) && (user.role !== 'admin')) {
-            throw new BadRequestException(`Logged in users can update their profile only`);
+        const caller = await this.findUser(currUser.sub);
+        if (!caller || (caller.id !== user.id && caller.role !== 'admin')) {
+            throw new ForbiddenException('You can only update your own profile');
         }
-        const updatedUser = Object.assign(user, updateObj);
-        return await this.repo.save(updatedUser);
+        const emailChanged = updateObj.email !== undefined && updateObj.email !== user.email;
+        if (updateObj.name !== undefined) user.name = updateObj.name;
+        if (updateObj.email !== undefined) user.email = updateObj.email;
+        return this.repo.manager.transaction(async manager => {
+            const updatedUser = await manager.save(Users, user);
+            if (emailChanged) {
+                await manager.update(JwtTokenList, {user: {id: user.id}}, {blockListed: true});
+            }
+            return updatedUser;
+        });
     }
 
     async getAllUsers(){

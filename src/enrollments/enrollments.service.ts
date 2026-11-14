@@ -1,4 +1,4 @@
-import { BadRequestException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateEnrollmentDto } from './dtos/create-enrollment.dto';
@@ -44,7 +44,11 @@ export class EnrollmentsService {
         return await this.repo.save(newEnrollment);
     }
 
-    async getEnrollments(userId: string = '*'){
+    async getEnrollments(userId: string, currUser: ExpressRequest["currUser"]){
+        const caller = await this.usersService.findUser(currUser.sub);
+        if (!caller || (caller.role !== 'admin' && userId !== caller.id)) {
+            throw new ForbiddenException('Only admins may read other users’ enrollments');
+        }
         let query =  this.repo.createQueryBuilder('enrollments')
         .innerJoin('enrollments.user', 'user')
         .innerJoin('enrollments.course', 'course')

@@ -40,7 +40,7 @@ import { LessionsModule } from './lessions/lessions.module';
       global: true,
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'),
+        secret: configService.getOrThrow<string>('JWT_SECRET'),
         signOptions: {
           expiresIn: configService.get<any>('JWT_EXPIRES_IN') || '1d'
         }
