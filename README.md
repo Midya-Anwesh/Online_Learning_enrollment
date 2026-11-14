@@ -6,6 +6,8 @@ This repository contains the backend only: there is no frontend, Swagger UI, gen
 
 > **Development project — review before deployment.** Public signup creates students only. Personal-data endpoints require authorization, lesson visibility is enrollment/assignment-based, and admins can manage all courses. See [Security and implementation limitations](#security-and-implementation-limitations) for remaining work.
 
+For a before-and-after explanation, file-by-file inventory, verification results, and rollout notes, see the [change guide](docs/AUTHORIZATION_CHANGES.md).
+
 ## Contents
 
 - [How it works](#how-it-works)
