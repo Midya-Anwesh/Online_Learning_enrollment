@@ -19,7 +19,7 @@ switch (process.env.NODE_ENV){
             database: process.env.DB_NAME,
             username: process.env.USER_NAME,
             password: process.env.PASSWORD,
-            entities: [__dirname + '/**/*.entity.{ts,js}']
+            entities: [__dirname + '/src/**/*.entity.{ts,js}']
         });
         break;
     default:

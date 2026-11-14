@@ -87,7 +87,7 @@ export class JwtTokenSerive {
         return await this.jwtRepo.createQueryBuilder('jwtToken')
                 .update()
                 .set({blockListed: true})
-                .where('user.id = :userId', {userId})
+                .where('userId = :userId', {userId})
                 .execute();
     }
 }

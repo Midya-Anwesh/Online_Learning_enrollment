@@ -46,8 +46,8 @@ export class CoursesController {
     @Roles('admin', 'instructor')
     @UseGuards(jwtAuthGuard)
     @Post()
-    createCourse(@Body() body: CreateCourseDto){
-        return this.coursesService.createCourse(body);
+    createCourse(@Body() body: CreateCourseDto, @Request() req: any){
+        return this.coursesService.createCourse(body, req.currUser);
     }
 
     @Roles('admin')

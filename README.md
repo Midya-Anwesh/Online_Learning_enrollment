@@ -2,9 +2,9 @@
 
 A NestJS REST API for managing users, courses, instructor assignments, lessons, and course enrollments. Built with TypeScript, Express, TypeORM, and MySQL, with Passport authentication, Argon2 password hashing, and database-backed JWT tracking.
 
-This repository contains the backend only: there is no frontend, Swagger UI, seed script, or Docker configuration.
+This repository contains the backend only: there is no frontend, Swagger UI, general-purpose seed script, or Docker configuration. A local first-admin bootstrap command is included.
 
-> **Development project — review security before deployment.** This README documents the code as implemented, not an idealized permission model. Public signup currently allows users to choose `admin`, several data endpoints are public, and profile updates have an authorization defect. See [Security and implementation limitations](#security-and-implementation-limitations).
+> **Development project — review before deployment.** Public signup creates students only. Personal-data endpoints require authorization, lesson visibility is enrollment/assignment-based, and admins can manage all courses. See [Security and implementation limitations](#security-and-implementation-limitations) for remaining work.
 
 ## Contents
 
@@ -129,13 +129,13 @@ curl http://localhost:3000/
 
 Expected root response: `Hello World!`
 
-> Setup instructions are derived from the checked-in configuration. They are not a claim that database-backed startup or end-to-end behavior has been verified in your environment. See the build/test caveats below.
+The build, regression tests, all eight migrations, and database-backed authorization tests have been verified in an isolated MariaDB environment. Configure and test your own database separately; this does not establish production readiness.
 
 ## Accounts and authentication
 
 ### Create an account
 
-Send `POST /auth/signup` with these required JSON fields:
+Send `POST /auth/signup` with these JSON fields (`role` is optional and may only be `student`):
 
 ```json
 {
@@ -146,11 +146,23 @@ Send `POST /auth/signup` with these required JSON fields:
 }
 ```
 
-Valid role strings are exactly `student`, `instructor`, and `admin`. Email must be valid and unique. Passwords are hashed with Argon2; there is no DTO-enforced minimum password length.
+Accounts have one of three roles: `student`, `instructor`, or `admin`. Public signup always stores `student`; requests specifying privileged roles are rejected. Email must be valid and unique. Passwords are hashed with Argon2; there is no DTO-enforced minimum password length.
 
 Signup returns selected account fields, **not an access token or the account UUID**. Log in next to obtain the UUID in `sub`.
 
-**Creating the first admin:** there is no seed/bootstrap command. In the current implementation, public signup accepts `"role": "admin"` directly. This works for isolated local evaluation but is a privilege-escalation risk on any publicly reachable deployment. The same endpoint can create instructor accounts. For an existing account, an authenticated admin can use `POST /users/assign_role`.
+### Create the first admin and instructor accounts
+
+Register the intended administrator as a normal student, then run this **locally on the server** using the configured database:
+
+```bash
+npm run bootstrap:admin -- admin@example.com
+```
+
+The command promotes an existing account only when no admin exists, serializes concurrent bootstrap commands with a MySQL advisory lock, and revokes that account's existing sessions. It is not an HTTP endpoint and requires database access. Log in again afterward.
+
+Once an admin exists, use authenticated `POST /users/assign_role` to promote registered accounts to instructor/admin. The bootstrap command refuses to create additional admins. Role changes revoke the target's sessions; that user must log in again.
+
+On an existing installation, review previously created admin accounts before deploying: preventing privileged signup does not remove old privileged accounts or retroactively repair malicious profile changes.
 
 ### Log in
 
@@ -180,11 +192,11 @@ Do not send a stale or invalid Authorization header to public endpoints: middlew
 3. `CurrentUsersMiddleware` verifies supplied JWTs and attaches the payload to `req.currUser`. It does not reject requests simply because a token is absent.
 4. Routes using `jwtAuthGuard` run the JWT strategy, which checks the token record/blocklist, then reload the user from the database.
 5. `@Roles(...)` stores allowed-role metadata. The guard compares it against the user's **current database role**, not merely the role embedded in an old token.
-6. Some services additionally check the caller's identity or course assignment. Being an admin is **not** a universal ownership-check bypass.
+6. Services additionally check the caller's identity or course assignment. Admins can manage any course and lesson; instructors need assignment to the relevant course.
 
-The JWT strategy sets `ignoreExpiration: true`, but middleware normally checks expiration first. This inconsistent configuration should be corrected rather than relied on.
+Both middleware and the Passport JWT strategy enforce expiration. `JWT_SECRET` must be configured explicitly; there is no strategy fallback secret.
 
-Password changes require the caller's old password, update the caller's account, block the token used for that request, and return a new login response. They do **not** revoke all other sessions. There is no logout or refresh-token endpoint.
+Password changes require the caller's old password, update the caller's account, block **all** of their existing sessions, and return a new login response. Email changes (through either profile or auth routes) and role changes also revoke all target-user sessions; log in again. Name-only updates do not revoke sessions. There is no logout or refresh-token endpoint.
 
 ## Roles and permissions
 
@@ -193,32 +205,33 @@ This matrix describes the **current controller and service checks**. “Assigned
 | Action | Anonymous | Student | Instructor | Admin |
 | --- | --- | --- | --- | --- |
 | Browse/search courses and course statistics | Yes | Yes | Yes | Yes |
-| Read lessons, enrollments, users by role, or another instructor's course list | Yes | Yes | Yes | Yes |
+| Read another instructor's course list (name and course titles) | Yes | Yes | Yes | Yes |
+| Read lesson content | No | Enrolled courses | Enrolled or assigned courses | All courses |
+| Read enrollment records | No | Own only | Own only | Any/all users |
+| List users by role or list all users | No | No | No | Yes |
 | View own token identity, profile, and enrolled courses | No | Yes | Yes | Yes |
 | Change own password | No | Yes | Yes | Yes |
 | Change email via `/auth/update/email` | No | Own only | Own only | Own or another user's |
-| Update name/email via `PATCH /users` | No | Any account currently* | Any account currently* | Any account currently* |
+| Update name/email via `PATCH /users` | No | Own only | Own only | Own or another user's |
 | Delete an account | No | Own only | Own only | Own or another user's |
-| Create a course and provide initial instructor assignments | No | No | Yes, not restricted to self | Yes |
-| Rename a course | No | No | Assigned courses only | Assigned courses only |
+| Create a course and provide initial instructor assignments | No | No | Self-assignment only | Any eligible instructors |
+| Rename a course | No | No | Assigned courses only | Any course |
 | Add/remove instructors on an existing course | No | No | No | Yes |
 | Delete a course | No | No | No | Yes |
-| Create a lesson | No | No | Any existing course | Any existing course |
-| Update a lesson | No | No | Assigned parent course only | Assigned parent course only |
+| Create a lesson | No | No | Assigned parent course only | Any existing course |
+| Update a lesson | No | No | Assigned parent course only | Any lesson |
 | Delete a lesson | No | No | No | Yes |
 | Enroll/unenroll | No | Self only | Self only | Self or another user |
 | Assign a role or use `GET /users/all` | No | No | No | Yes |
 
-*`PATCH /users` has a broken ownership check: it looks up the target by `oldEmail`, then compares `oldEmail` to that same target's email, without comparing the caller's identity. Do not interpret this as intended cross-account access.
-
 Additional rules:
 
 - Creating a course requires at least one instructor UUID. Each assigned account must exist and must not currently be a student. Admin accounts can be assigned as instructors.
-- Course creation and instructor assignment are transactional. The creator is not automatically assigned; include their UUID if they should be able to edit the course.
+- Course creation and instructor assignment are transactional. An instructor creating a course must supply exactly their own UUID; admins may assign any eligible accounts and need not assign themselves.
 - For non-admin enrollment creation, a supplied `userId` is ignored and the caller is enrolled instead.
 - Instructors and admins can themselves enroll as learners.
-- Public lesson reads do not require enrollment. There is no enrollment-based content access control.
-- Role changes take effect for guarded requests through database lookup, but do not automatically remove existing course assignments or revoke tokens.
+- Lesson reads require authentication and return only authorized courses. A query for an inaccessible course returns an empty object, not its lessons. Unenrollment removes enrollment-based visibility immediately.
+- Role changes revoke existing tokens and take effect through database lookup. They do not remove existing assignment rows; a demoted student cannot use stale instructor assignments to manage lessons or read them without enrollment.
 
 ## API reference
 
@@ -229,16 +242,12 @@ All paths are relative to the base URL. Request bodies are JSON (`Content-Type: 
 | Method | Path | Input / result |
 | --- | --- | --- |
 | GET | `/` | Returns `Hello World!` |
-| POST | `/auth/signup` | Body: `name`, `role`, `email`, `password` |
+| POST | `/auth/signup` | Body: `name`, `email`, `password`; optional `role` must be `student` |
 | POST | `/auth/login` | Body: `email`, `password`; returns token and identity |
-| GET | `/users?role=student` | Lists serialized users matching a role; use `instructor` or `admin` as needed |
 | GET | `/courses?term=Nest` | Searches course titles with SQL `LIKE`; omitted term lists matching nonempty titles |
 | GET | `/courses/stat` | Optional `courseId`, `page` (default `1`), `limit` (`10`), `sort` (`1`), `order` (`ASC`/`DESC`); sorts by enrollment count when enabled |
 | GET | `/courses/student_count?id=<courseId>` | Enrollment count per course; omit `id` for all courses; includes enrolled users of any role |
 | GET | `/courses/lession_count?id=<courseId>` | Lesson count per course; omit `id` for all |
-| GET | `/lessions?courseId=<courseId>` | Lessons grouped by course title; omit `courseId` for all |
-| GET | `/enrollments` | All enrollments, including learner names/emails |
-| GET | `/enrollments/<userId>` | Enrollment records for one user, including name/email |
 | GET | `/instructors/<userId>/courses` | Assigned course titles for a user |
 
 ### Authenticated account routes
@@ -248,12 +257,16 @@ All paths are relative to the base URL. Request bodies are JSON (`Content-Type: 
 | GET | `/auth/me` | Token-derived identity; not a fresh profile lookup |
 | GET | `/users/profile` | Own name, assigned course titles, enrolled course titles |
 | GET | `/users/enrolled_courses` | Own enrollment course titles/dates |
-| PATCH | `/users` | Required `oldEmail`; optional `name`, `email`; throttled; **ownership defect noted above** |
+| PATCH | `/users` | Required `oldEmail`; optional `name`, `email`; throttled; self or admin only |
 | POST | `/auth/update_password` | `email`, `oldPassword`, `newPassword`; updates caller only, including for admins |
 | PATCH | `/auth/update/email` | `oldEmail`, `newEmail`; only admins may target a different account |
 | DELETE | `/auth/delete` | Deletes self; admin may add `?userId=<targetId>` |
 | POST | `/users/assign_role` | Admin only; `email`, `role` |
 | GET | `/users/all` | Admin only; serialized account list |
+| GET | `/users?role=student` | Admin only; serialized users by role |
+| GET | `/enrollments` | Admin only; all enrollment records |
+| GET | `/enrollments/<userId>` | Own records, or any user's records for admins |
+| GET | `/lessions?courseId=<courseId>` | Only enrolled/assigned courses, or all for admins; omit `courseId` for all visible courses |
 
 For password changes, non-admins must supply their own email; admins still update only their own password and must provide their own old password.
 
@@ -261,19 +274,19 @@ For password changes, non-admins must supply their own email; admins still updat
 
 | Method | Path | JSON body | Access |
 | --- | --- | --- | --- |
-| POST | `/courses` | `{"title":"NestJS Basics","instructors":["<instructorId>"]}` | Instructor/admin |
-| PATCH | `/courses` | `{"id":"<courseId>","newTitle":"NestJS Essentials"}` | Instructor/admin assigned to this course |
+| POST | `/courses` | `{"title":"NestJS Basics","instructors":["<instructorId>"]}` | Instructor assigning self only, or admin |
+| PATCH | `/courses` | `{"id":"<courseId>","newTitle":"NestJS Essentials"}` | Assigned instructor, or any admin |
 | DELETE | `/courses/<courseId>` | None | Admin |
 | POST | `/courses/<courseId>/assign_instructors` | `{"instructorIds":["<userId>"]}` | Admin |
 | DELETE | `/courses/<courseId>/remove_instructors` | `{"instructorIds":["<userId>"]}` | Admin; body is required even on DELETE |
 | GET | `/instructors/myCourses` | None | Instructor/admin; lists own assignments |
-| POST | `/lessions` | `{"name":"Introduction","code":"INTRO","desc":"Getting started","courseId":"<courseId>"}` | Instructor/admin; no assignment check |
-| PATCH | `/lessions` | `{"id":"<lessionId>","name":"Updated name","code":"INTRO2","desc":"Updated description"}` | Instructor/admin assigned to parent course |
+| POST | `/lessions` | `{"name":"Introduction","code":"INTRO","desc":"Getting started","courseId":"<courseId>"}` | Assigned instructor, or any admin |
+| PATCH | `/lessions` | `{"id":"<lessionId>","name":"Updated name","code":"INTRO2","desc":"Updated description"}` | Assigned instructor, or any admin |
 | DELETE | `/lessions/<lessionId>` | None | Admin |
 | POST | `/enrollments` | `{"courseId":"<courseId>"}`; admin may also supply `userId` | Any authenticated role |
 | DELETE | `/enrollments/<courseId>` | None; admin may add `?userId=<targetId>` | Self, or admin acting for another user |
 
-Lesson creation requires nonempty `name`, `code`, and `desc`; `code` is at most 10 characters. Lesson updates require `id`; the other fields are optional. `desc` is stored as `description`. Prefer sending all three editable fields when updating until partial-update behavior has dedicated tests.
+Lesson creation requires nonempty `name`, `code`, and `desc`; `code` is at most 10 characters. Lesson updates require `id`; omitted editable fields are preserved. `desc` is stored as `description`.
 
 ### Response and error notes
 
@@ -282,20 +295,20 @@ Lesson creation requires nonempty `name`, `code`, and `desc`; `code` is at most 
 - `GET /lessions` groups by **title**, so different courses with the same title share an output group.
 - Enrollment creation is serialized to `id`, `enrolledOn`, selected user fields, and course `id`/`title`. Enrollment reads return raw report rows with display labels.
 - SQL failures are converted to HTTP `400` with `msg`, `sql_err_code`, and `sql_err`. Duplicate emails, enrollment pairs, instructor pairs, and lesson code/course pairs can trigger uniqueness errors.
-- Guard role rejection normally produces `403`; service-level ownership failures often use `400`. Missing resources commonly produce `404`; missing authentication normally produces `401`. Do not assume every access denial has the same status.
+- Role, profile ownership, course/lesson management, and enrollment-read denials produce `403`. Older account/enrollment-write ownership checks still use `400`. Missing resources commonly produce `404`; missing authentication normally produces `401`. Invalid/blocked token records can produce `400` or `404`.
 
 ## Example workflow
 
 Use a local API client such as Postman, Insomnia, or curl. Store tokens/passwords privately; do not commit request collections containing them.
 
-1. **Create test accounts:** call `/auth/signup` for one admin, one instructor, and one student, using different emails. Direct role selection is for isolated evaluation only.
-2. **Log in each account:** save each `accessToken` privately and each `sub` UUID. Signup/user lists do not expose UUIDs.
+1. **Create test accounts:** call `/auth/signup` for three normal student accounts with different emails. Bootstrap one as the first admin using the local command above.
+2. **Promote and log in:** log in as admin and promote one account to instructor with `/users/assign_role`. Log in each account after its final role change; save each token privately and each `sub` UUID.
 3. **Create a course as the instructor:** `POST /courses` with the instructor's `sub` in `instructors`. Save the returned course `id`.
 4. **Add a lesson as the instructor:** `POST /lessions` with that course ID. Save the returned lesson `id`.
-5. **Browse as an anonymous visitor:** call `/courses`, `/courses/stat`, and `/lessions?courseId=<courseId>` without an Authorization header.
-6. **Enroll as the student:** `POST /enrollments` with `courseId`, then inspect `/users/enrolled_courses` with the student's token.
-7. **Try access boundaries:** a student cannot create courses; an unassigned instructor cannot rename this course or edit its lessons. An unassigned admin also cannot rename it or edit its lessons.
-8. **Manage as admin:** use `/users/assign_role`, the instructor-assignment routes, or enrollment `userId` targeting. Assign the admin to a course first if they need to rename it or edit its lessons.
+5. **Browse as an anonymous visitor:** call `/courses` and `/courses/stat` without a token. Lesson reads require login and enrollment/assignment.
+6. **Enroll as the student:** `POST /enrollments` with `courseId`, then inspect `/users/enrolled_courses` and `/lessions?courseId=<courseId>` using the student's token.
+7. **Try access boundaries:** a student cannot create courses or modify another account; an unassigned instructor cannot rename a course or create/edit its lessons. Unenrolled users cannot read its lessons.
+8. **Manage as admin:** use `/users/assign_role`, instructor-assignment routes, or enrollment `userId` targeting. Admins can rename courses and manage lessons without being assigned.
 9. **Unenroll as the student:** `DELETE /enrollments/<courseId>`. Account/course deletion is destructive and also removes related records as described above.
 
 Example authenticated read, assuming `ACCESS_TOKEN` was set privately in your shell:
@@ -319,12 +332,25 @@ curl http://localhost:3000/users/enrolled_courses \
 | `npm run test:watch` | Watch unit tests |
 | `npm run test:cov` | Unit-test coverage |
 | `npm run test:e2e` | End-to-end tests; database/test configuration needs work |
+| `npm run test:security:integration` | Database-backed authorization lifecycle tests; requires an empty, migrated, disposable development-config database |
+| `npm run bootstrap:admin -- admin@example.com` | Promote a registered account only if no admin exists; requires local database access |
 | `npm run lint` | Runs ESLint with `--fix`; checked-in rules are commented out |
 | `npm run format` | Formats source and test TypeScript files |
 | `npm run typeorm -- migration:show -d datasource.ts` | Inspect migration status |
 | `npm run typeorm -- migration:run -d datasource.ts` | Apply pending migrations |
 
-There are only starter root-controller unit/e2e tests, not an RBAC or enrollment test suite. Test scripts set `NODE_ENV=test`, but `datasource.ts` has no test configuration branch. An `.env.test` file alone does not solve that; configure a separate test data source first.
+`npm test -- --runInBand` includes service-level authorization, HTTP guard/validation, session-revocation, and admin-bootstrap regression tests without a database. The separate integration suite uses the full Nest app, real Passport authentication, actual migrations, and database persistence.
+
+To run the integration suite, create a fresh database whose name begins **`online_learning_test_`**, set `DB_NAME` to it along with the development connection settings and `JWT_SECRET`, apply migrations, then run:
+
+```bash
+npm run typeorm -- migration:run -d datasource.ts
+npm run test:security:integration
+```
+
+The suite refuses other database-name prefixes and nonempty user tables, never truncates tables, and leaves synthetic records for inspection. It covers signup escalation, first-admin bootstrap, role/session changes, cross-account writes, course/lesson ownership, filtered reads, unenrollment, and password/email session revocation. Use a new disposable database for each run. Validation used MariaDB (MySQL-compatible), not a production server.
+
+The original `test:e2e` starter script still sets `NODE_ENV=test`, but `datasource.ts` has no test configuration branch. Use the dedicated security integration command above; an `.env.test` file alone does not fix the original starter suite.
 
 Production also requires checking the compiled entry point and absolute-import resolution (`datasource`, `src/...`) against the actual build output. Do not assume `start:prod` is verified simply because the script exists.
 
@@ -338,7 +364,8 @@ Production also requires checking the compiled entry point and absolute-import r
 | `Unknown environment: test` | Data source currently supports only development; add explicit isolated test configuration |
 | Unauthorized / bad token | Send `Authorization: Bearer …`; use the correct signing configuration and a current login token |
 | Blocklisted/missing token entry | Log in again; do not manually invent JWTs or token rows |
-| Admin cannot rename course/edit lesson | Assign that admin to the parent course first; both service methods require assignment |
+| Cannot read lesson content | Log in and enroll or obtain instructor assignment; admins have full visibility |
+| Instructor cannot create/edit a lesson | An instructor role alone is insufficient; the caller must be assigned to the parent course |
 | Cannot assign a student as instructor | Change the account's role to instructor/admin first |
 | Duplicate enrollment/instructor/lesson | Check the unique pairs listed in the data model; choose a new lesson code within the same course |
 | `429` when updating users | `PATCH /users` has a default limit of one request per 60 seconds |
@@ -347,23 +374,19 @@ Production also requires checking the compiled entry point and absolute-import r
 
 ## Security and implementation limitations
 
-These are source-level findings, not a claim that every issue has been reproduced against a running server. This documentation change does not fix application behavior.
-
-- **Public privilege selection:** `/auth/signup` accepts `admin` and `instructor`. Restrict public registration to students and implement a controlled first-admin bootstrap before exposing the API.
-- **Broken profile-update ownership:** `UsersService.updateUser()` never verifies that `req.currUser.sub` owns the target account. Any authenticated role can currently target another user's name/email with `oldEmail`. Fix this before deployment.
-- **Public personal data:** enrollment reads expose names/emails without authentication. Users-by-role and instructor/course listings are also public. Add explicit privacy requirements and guards.
-- **Uneven course ownership rules:** course/lesson updates require assignments even for admins, but lesson creation has no assignment check, and course creators may initially assign any eligible users. Decide the intended policy and enforce it consistently.
-- **Token configuration inconsistencies:** middleware verifies expiry, the Passport JWT strategy ignores it, and that strategy has a fallback secret. Require one explicit secret and consistent expiration enforcement.
-- **Incomplete session revocation:** password changes revoke only the token used for that request. Role/email changes do not revoke tokens; token identity fields can be stale even though guarded role checks use the database. There is no logout/refresh flow.
+- **Existing deployments need review:** audit old elevated accounts and any unauthorized profile changes. New signup restrictions do not retroactively clean existing data. Existing tokens are not globally revoked just by upgrading.
+- **Public catalog metadata:** course reports and instructor-course listings (including instructor names) remain public by design. Review this against your privacy requirements.
+- **No logout/refresh flow:** account changes revoke sessions, but there is no explicit logout endpoint or refresh-token lifecycle.
 - **No production/test data source:** environment support and compiled startup need attention before production use or reliable e2e tests.
-- **Limited input hardening:** DTOs have no password-strength policy, some strings have no maximum length, and report pagination accepts insufficiently bounded numbers. Instructor assignment DTOs lack an explicit array validator.
+- **Limited input hardening:** DTOs have no password-strength policy, some strings have no maximum length, and report pagination accepts insufficiently bounded numbers.
 - **Limited abuse/error protection:** throttling only covers one route; login/signup are not throttled by this configuration. SQL error responses include database details.
-- **Limited verification:** starter tests do not cover authorization, ownership, migrations, token revocation, or cascading deletes. Course duplicate detection and lesson partial updates also need regression coverage.
+- **Remaining test scope:** authorization and revocation have regression coverage, but course duplicate detection, cascade deletion, production startup, concurrency outside first-admin bootstrap, and broader input hardening still need dedicated checks.
 
 ## Project structure
 
 ```text
 datasource.ts                  TypeORM connection and migration configuration
+scripts/bootstrap-admin.ts     Local-only first-admin promotion
 migrations/                    Versioned MySQL schema changes
 src/
   main.ts                      Bootstrap, global validation, HTTP port
@@ -380,7 +403,7 @@ src/
   lessions/                    Lesson CRUD (existing project spelling)
   enrollments/                 Enrollment creation, reports, self/admin removal
   exceptionFilters/            SQL failure → HTTP 400 translation
-test/                          Starter e2e test and Jest configuration
+test/                          Starter e2e plus database-backed security tests
 ```
 
 ## License

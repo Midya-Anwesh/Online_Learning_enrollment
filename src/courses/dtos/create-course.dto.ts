@@ -1,4 +1,4 @@
-import { IsString, IsArray, IsUUID, ArrayMinSize } from "class-validator";
+import { IsString, IsArray, IsUUID, ArrayMinSize, ArrayUnique } from "class-validator";
 
 export class CreateCourseDto {
     @IsString()
@@ -7,5 +7,6 @@ export class CreateCourseDto {
     @IsArray()
     @IsUUID('all', {each: true})
     @ArrayMinSize(1)
+    @ArrayUnique()
     instructors: string[];
 }

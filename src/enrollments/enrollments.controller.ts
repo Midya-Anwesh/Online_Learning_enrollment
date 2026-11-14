@@ -12,14 +12,18 @@ export class EnrollmentsController {
         private enrollmentsService: EnrollmentsService
     ){}
 
+    @Roles('admin')
+    @UseGuards(jwtAuthGuard)
     @Get()
-    getAllEnrollments(){
-        return this.enrollmentsService.getEnrollments();
+    getAllEnrollments(@Request() req: ExpressRequest){
+        return this.enrollmentsService.getEnrollments('*', req.currUser);
     }
 
+    @Roles('student', 'instructor', 'admin')
+    @UseGuards(jwtAuthGuard)
     @Get('/:userId')
-    getEnrollmentsByUser(@Param('userId') userId: string){
-        return this.enrollmentsService.getEnrollments(userId);
+    getEnrollmentsByUser(@Param('userId') userId: string, @Request() req: ExpressRequest){
+        return this.enrollmentsService.getEnrollments(userId, req.currUser);
     }
 
     @Roles('student', 'instructor', 'admin')

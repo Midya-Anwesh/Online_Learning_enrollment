@@ -1,10 +1,12 @@
-import { BadRequestException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
 import { Courses } from './courses.entity';
 import { CreateCourseDto } from './dtos/create-course.dto';
 import { InstructorsService } from '../instructors/instructors.service';
 import { DataSource } from 'typeorm';
+import { UsersService } from '../users/users.service';
+import type { Request as ExpressRequest } from 'express';
 
 @Injectable()
 export class CoursesService {
@@ -12,7 +14,8 @@ export class CoursesService {
         @InjectRepository(Courses) private repo: Repository<Courses>,
         @Inject(forwardRef(() => InstructorsService))
         private instructorsService: InstructorsService,
-        private dataSource: DataSource
+        private dataSource: DataSource,
+        private usersService: UsersService
     ){}
 
     private async exists(courses: Courses[], courseObj: CreateCourseDto){
@@ -36,7 +39,16 @@ export class CoursesService {
         }
         return false;
     }
-    async createCourse(courseObj: CreateCourseDto){
+    async createCourse(courseObj: CreateCourseDto, currUser: ExpressRequest["currUser"]){
+        const caller = await this.usersService.findUser(currUser.sub);
+        if (!caller || !['admin', 'instructor'].includes(caller.role)) {
+            throw new ForbiddenException('Only instructors and admins may create courses');
+        }
+        if (caller.role !== 'admin' && (
+            courseObj.instructors.length !== 1 || courseObj.instructors[0] !== caller.id
+        )) {
+            throw new ForbiddenException('Instructors may only assign themselves when creating a course');
+        }
         // First try to check if we have course with same title with same instructors
         // If, yes throw new bad request, otherwise let it through
         const course = await this.repo.find({where: {title: courseObj.title}, relations: ['instructors.instructor']});
@@ -95,6 +107,10 @@ export class CoursesService {
     }
 
     async updateCourse(id: string, newTitle: string, currUser: any){
+        const caller = await this.usersService.findUser(currUser.sub);
+        if (!caller || !['admin', 'instructor'].includes(caller.role)) {
+            throw new ForbiddenException('Only instructors and admins may update courses');
+        }
         const course = await this.repo.findOne({
             where: {id},
             relations: ['instructors', 'instructors.instructor']
@@ -108,8 +124,8 @@ export class CoursesService {
                 isValid = true;
             }
         });
-        if (!isValid){
-            throw new BadRequestException(`User with id: ${currUser.sub} isn't an instructor of the course with id: ${id}, and title: ${course.title}`);
+        if (!isValid && caller.role !== 'admin'){
+            throw new ForbiddenException('You must be assigned to this course to update it');
         }
         course.title = newTitle;
         return await this.repo.save(course);

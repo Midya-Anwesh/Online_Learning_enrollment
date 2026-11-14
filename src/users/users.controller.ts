@@ -15,6 +15,8 @@ export class UsersController {
         private usersService: UsersService
     ){}
 
+    @Roles('admin')
+    @UseGuards(jwtAuthGuard)
     @Get()
     getUserByRole(@Query('role') role: string){
         return this.usersService.getUserByRole(role);
